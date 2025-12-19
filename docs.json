@@ -6,7 +6,9 @@
     "decoration": "grid"
   },
   "colors": {
-    "primary": "#FF00FF"
+    "primary": "#FF00FF",
+    "light": "#FF00FF",
+    "dark": "#FF00FF"
   },
   "navigation": {
     "pages": [
