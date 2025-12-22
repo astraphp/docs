@@ -1,6 +1,8 @@
 
 ## File Structure
 
+Application structure
+
 ```
 app/
   Http/
@@ -40,6 +42,159 @@ Astra\Pages\ViewPage
 Astra\Blocks\RelatedTableBlock
 Astra\Http\Controllers\ViewPageController
 ````
+
+Composer package structure
+
+```
+src/
+  Actions/
+    Action.php
+    Concerns/
+      HasAuthorization.php
+      HasConfirmation.php
+      HasPresentation.php
+    Presentation/
+      Presenter.php
+      ModalPresenter.php
+      SlideOutPresenter.php
+      InlinePresenter.php
+    Types/
+      LinkAction.php
+      SubmitAction.php
+      DangerousAction.php
+
+  Blocks/
+    Block.php
+    DetailsBlock.php
+    RelationBlock.php
+    Concerns/
+      HasHeading.php
+      HasActions.php
+
+  Data/
+    IR/
+      PageIR.php
+      BlockIR.php
+      FormIR.php
+      TableIR.php
+      FieldIR.php
+      ColumnIR.php
+
+  Descriptors/
+    Descriptor.php
+    Concerns/
+      HasLabel.php
+      HasHelpText.php
+      HasDefault.php
+      HasVisibility.php
+      HasRules.php
+      HasOptions.php
+      HasFormatting.php
+    Contracts/
+      DescribesValue.php
+      ResolvesOptions.php
+    Types/
+      TextDescriptor.php
+      MoneyDescriptor.php
+      EnumDescriptor.php
+      DateDescriptor.php
+      RelationDescriptor.php
+    Value/
+      Option.php
+      Money.php
+
+  Forms/
+    Form.php
+    Concerns/
+      HasState.php
+      HasValidation.php
+      InteractsWithActions.php
+    Fields/
+      Field.php
+      Text.php
+      Money.php
+      Select.php
+      Date.php
+      Relationship.php
+    Schema/
+      FormSchema.php
+
+  Http/
+    Controllers/
+    Middleware/
+    Requests/
+
+  Mutators/
+    Mutator.php
+    Contracts/
+      MutatesDescriptors.php
+      MutatesForms.php
+      MutatesTables.php
+      MutatesPages.php
+
+  Notifications/
+    Notification.php
+    NotificationManager.php
+    Channels/
+      Channel.php
+      ToastChannel.php
+      BannerChannel.php
+      ModalChannel.php
+    Concerns/
+      HasTitle.php
+      HasBody.php
+      HasLevel.php
+      HasActions.php
+      HasDuration.php
+      IsDismissible.php
+    Contracts/
+      SendsNotifications.php
+      RoutesNotifications.php
+    Events/
+      NotificationSent.php
+    Types/
+      Success.php
+      Info.php
+      Warning.php
+      Danger.php
+
+  Pages/
+    Page.php
+    ViewPage.php
+    CreatePage.php
+    EditPage.php
+    Concerns/
+      HasRecord.php
+      HasHeader.php
+      HasBlocks.php
+      HasTabs.php
+
+  Support/
+    Arr.php
+    Str.php
+    Exceptions/
+      AstraException.php
+    Normalizers/
+
+  Tables/
+    Table.php
+    Columns/
+      Column.php
+      Text.php
+      Money.php
+      Badge.php
+      Date.php
+    Concerns/
+      HasSorting.php
+      HasPagination.php
+    Filters/
+      Filter.php
+      SelectFilter.php
+      DateRangeFilter.php
+```
+
+
+
 
 ## Schema concept
 
