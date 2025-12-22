@@ -44,38 +44,63 @@ Astra\Http\Controllers\ViewPageController
 ## Schema concept
 
 ```php
+use Astra\Admin\Pages\ViewPage;
+use Astra\IR\Block;
+use Astra\IR\Layout;
+use Astra\IR\Action;
+use Astra\IR\Badge;
+use Astra\IR\Panel;
+use Illuminate\Http\Request;
+
 ViewPage::make('products.view')
-  ->component('Admin/ViewPage') // default
+  ->component('Admin/ViewPage')
+  ->layout('record-view') // e.g. regions: header, summary, main
+  ->record(fn (Request $r) => Product::query()->findOrFail($r->route('product')))
   ->defaultBlock('variants')
-  ->record(fn(Request $r) => Product::query()->findOrFail($r->route('product')))
-  ->header(fn($p) => Header::make()
-      ->title($p->name)
-      ->badges([ Badge::make('status')->from($p->status) ])
-      ->actions([
-          Action::link('Edit')->to(route('admin.products.edit', $p)),
+  ->regions([
+    'header' => [
+      Block\Header::make()
+        ->title(fn (Product $p) => $p->name)
+        ->badges(fn (Product $p) => [
+          Badge::make('status')->from($p->status),
+        ])
+        ->actions(fn (Product $p) => [
+          Action::link('Edit')->to(fn (Product $p) => route('admin.products.edit', $p)),
           Action::danger('Delete')->handler('products.delete'),
-      ])
-  )
-  ->blocks([
-      DetailsBlock::make('Details')
-          ->fields([
-              Display::text('sku'),
-              Display::money('price')->currency('GBP'),
-              Display::text('status'),
-          ])
-          ->columns(2),
+        ]),
+    ],
 
-      RelatedTableBlock::make('Variants')
-          ->stateKey('variants')        // used for querystring namespacing, etc
-          ->list(VariantsListPage::schema())           // reuse your ListPage schema
-          ->scope(fn($q, $p) => $q->where('product_id', $p->id))
-          ->endpoint(route('admin.products.variants.data', $p)),
+    'summary' => [
+      Block\Details::make('Details')
+        ->fields([
+          Block\Display::text('sku'),
+          Block\Display::money('price')->currency('GBP'),
+          Block\Display::text('status'),
+        ])
+        ->columns(2),
+    ],
 
-      RelatedTableBlock::make('Images')
-          ->stateKey('images')
-          ->list(ProductImagesListPage::schema())
-          ->endpoint(route('admin.products.images.data', $p)),
-  ]);
+    'main' => [
+      // A content “host” block. Not “layout”, just a UI container within the main region.
+      Block\Panels::make()
+        ->panels([
+          Panel::make('variants')->label('Variants')->schema([
+            Block\RelatedTable::make('Variants')
+              ->stateKey('variants') // for querystring + client cache namespacing
+              ->list(VariantsListPage::schema())
+              ->scope(fn ($q, Product $p) => $q->where('product_id', $p->id))
+              ->endpoint(fn (Product $p) => route('admin.products.variants.data', $p)),
+          ]),
+
+          Panel::make('images')->label('Images')->schema([
+            Block\RelatedTable::make('Images')
+              ->stateKey('images')
+              ->list(ProductImagesListPage::schema())
+              ->endpoint(fn (Product $p) => route('admin.products.images.data', $p)),
+          ]),
+        ]),
+    ],
+  ])
 ```
 
 ### Schema class
