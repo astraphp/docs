@@ -24,11 +24,18 @@
         ]
       },
       {
-        "group": "Pseudocode",
+        "group": "Pseudocode (PHP)",
         "icon": "play",
         "pages": [
           "pseudocode/core",
           "pseudocode/extending"
+        ]
+      },
+      {
+        "group": "Pseudocode (TS)",
+        "icon": "play",
+        "pages": [
+          "pseudocode/frontend/overview"
         ]
       }
     ]

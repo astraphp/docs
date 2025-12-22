@@ -1,0 +1,570 @@
+## Types
+
+Types (IR - Intermediate Representation) you’ll pass from PHP
+
+resources/js/astra/types.ts
+
+```ts
+export type PageIR = {
+  id: string;
+  component: string; // optional, used server-side mostly
+  title?: string;
+  header?: HeaderIR;
+  blocks?: BlockIR[];
+  // For Form pages:
+  form?: FormSchemaIR;
+  initial?: Record<string, any>;
+  submit?: { method: "post" | "put" | "patch" | "delete"; url: string };
+};
+
+export type HeaderIR = {
+  title: string;
+  badges?: Array<{ label: string; tone?: string }>;
+  actions?: Array<ActionIR>;
+};
+
+export type ActionIR =
+  | { kind: "link"; label: string; href: string }
+  | { kind: "button"; label: string; intent?: "primary" | "danger"; actionId: string };
+
+export type BlockIR =
+  | DetailsBlockIR
+  | RelatedTableBlockIR
+  | CustomBlockIR;
+
+export type DetailsBlockIR = {
+  type: "details";
+  id: string;
+  title?: string;
+  columns?: number;
+  fields: Array<{ key: string; label: string; display?: "text" | "money" | "badge" }>;
+};
+
+export type RelatedTableBlockIR = {
+  type: "relatedTable";
+  id: string;
+  title: string;
+  stateKey: string;        // e.g. "variants"
+  endpoint: string;        // JSON endpoint to load rows
+  schema: ListSchemaIR;    // columns/filters/actions metadata
+  defaultActive?: boolean;
+};
+
+export type CustomBlockIR = {
+  type: "custom";
+  id: string;
+  component: string;       // Vue component name/path
+  props?: Record<string, any>;
+};
+
+export type ListSchemaIR = {
+  columns: Array<{ key: string; label: string; sortable?: boolean; display?: "text" | "money" | "badge" }>;
+  rowActions?: Array<{ label: string; kind: "link" | "modal"; href?: string; modalUrl?: string }>;
+  filters?: Array<{ key: string; label: string; type: "select" | "text"; options?: Array<{ value: any; label: string }> }>;
+};
+
+export type FormSchemaIR = {
+  sections: Array<{
+    title: string;
+    fields: Array<{ key: string; type: string; label: string; span?: number; props?: Record<string, any> }>;
+  }>;
+};
+```
+
+## Querystring namespace
+
+Querystring namespace helpers
+
+resources/js/astra/utils/state.ts
+
+```ts
+import { router } from "@inertiajs/vue3";
+
+export function getQuery(): URLSearchParams {
+  return new URLSearchParams(window.location.search);
+}
+
+export function getNsParam(ns: string, key: string) {
+  // expects ns[key] style, e.g. variants[page]
+  const q = getQuery();
+  return q.get(`${ns}[${key}]`);
+}
+
+export function setNsParams(ns: string, params: Record<string, any>, replace = true) {
+  const q = getQuery();
+
+  for (const [k, v] of Object.entries(params)) {
+    const full = `${ns}[${k}]`;
+    if (v === null || v === undefined || v === "") q.delete(full);
+    else q.set(full, String(v));
+  }
+
+  const url = `${window.location.pathname}?${q.toString()}`;
+
+  // Replace state so back button isn’t ridiculous. You can make this configurable.
+  router.visit(url, { preserveState: true, preserveScroll: true, replace });
+}
+```
+
+## List block composable
+
+Loads JSON endpoint...
+
+resources/js/astra/composables/useRelatedTable.ts
+
+```ts
+import { onMounted, reactive, ref } from "vue";
+import axios from "axios";
+import type { RelatedTableBlockIR } from "../types";
+import { getNsParam, setNsParams } from "../utils/state";
+
+export function useRelatedTable(block: RelatedTableBlockIR) {
+  const loading = ref(false);
+
+  const state = reactive({
+    page: Number(getNsParam(block.stateKey, "page") ?? 1),
+    perPage: Number(getNsParam(block.stateKey, "per_page") ?? 25),
+    sort: String(getNsParam(block.stateKey, "sort") ?? ""),
+    search: String(getNsParam(block.stateKey, "search") ?? ""),
+    // filters: you can expand to ns[filter][x]; keeping MVP light here
+    filterStatus: String(getNsParam(block.stateKey, "status") ?? ""),
+  });
+
+  const rows = ref<any[]>([]);
+  const meta = reactive({ page: 1, pages: 1, total: 0 });
+
+  async function fetchRows() {
+    loading.value = true;
+    try {
+      const { data } = await axios.get(block.endpoint, {
+        params: {
+          page: state.page,
+          per_page: state.perPage,
+          sort: state.sort,
+          search: state.search,
+          status: state.filterStatus,
+        },
+      });
+
+      // expects Laravel paginator-like payload under data.rows
+      rows.value = data.rows.data;
+      meta.page = data.rows.current_page;
+      meta.pages = data.rows.last_page;
+      meta.total = data.rows.total;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  function syncUrl() {
+    setNsParams(block.stateKey, {
+      page: state.page,
+      per_page: state.perPage,
+      sort: state.sort,
+      search: state.search,
+      status: state.filterStatus,
+    });
+  }
+
+  function setPage(p: number) {
+    state.page = p;
+    syncUrl();
+    fetchRows();
+  }
+
+  function setSort(sort: string) {
+    state.sort = sort;
+    state.page = 1;
+    syncUrl();
+    fetchRows();
+  }
+
+  let t: any;
+  function setSearch(value: string) {
+    state.search = value;
+    state.page = 1;
+    syncUrl();
+    clearTimeout(t);
+    t = setTimeout(fetchRows, 250);
+  }
+
+  function refresh() {
+    fetchRows();
+  }
+
+  onMounted(fetchRows);
+
+  return { state, rows, meta, loading, setPage, setSort, setSearch, refresh };
+}
+```
+
+## Modal manager
+
+Edit related row in a modal.
+
+This pattern: open modal → GET payload JSON → create Inertia useForm() → submit
+
+resources/js/astra/composables/useModalForm.ts
+
+```ts
+import { ref } from "vue";
+import axios from "axios";
+import { useForm } from "@inertiajs/vue3";
+import type { FormSchemaIR } from "../types";
+
+type ModalPayload = {
+  title?: string;
+  form: FormSchemaIR;
+  initial: Record<string, any>;
+  submit: { method: "post" | "put" | "patch" | "delete"; url: string };
+};
+
+export function useModalForm() {
+  const open = ref(false);
+  const loading = ref(false);
+  const payload = ref<ModalPayload | null>(null);
+
+  // Inertia form instance (created after payload loads)
+  const form = ref<any>(null);
+
+  async function show(url: string) {
+    open.value = true;
+    loading.value = true;
+    payload.value = null;
+    form.value = null;
+
+    try {
+      const { data } = await axios.get<ModalPayload>(url);
+      payload.value = data;
+      form.value = useForm({ ...data.initial });
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  function hide() {
+    open.value = false;
+    payload.value = null;
+    form.value = null;
+  }
+
+  function submit(options: Record<string, any> = {}) {
+    if (!payload.value || !form.value) return;
+
+    form.value.submit(payload.value.submit.method, payload.value.submit.url, {
+      preserveScroll: true,
+      ...options,
+    });
+  }
+
+  return { open, loading, payload, form, show, hide, submit };
+}
+```
+
+## Basic AutoForm renderer
+
+Uses developer-owned Inertia form.
+
+resources/js/astra/components/AutoForm.vue
+
+```ts
+<script setup lang="ts">
+import type { FormSchemaIR } from "../types";
+
+const props = defineProps<{
+  schema: FormSchemaIR;
+  form: any; // Inertia form
+}>();
+</script>
+
+<template>
+  <div class="space-y-8">
+    <section v-for="section in schema.sections" :key="section.title" class="space-y-4">
+      <h2 class="text-lg font-semibold">{{ section.title }}</h2>
+
+      <div class="grid grid-cols-12 gap-4">
+        <div
+          v-for="field in section.fields"
+          :key="field.key"
+          :class="`col-span-${field.span ?? 12}`"
+        >
+          <label class="block text-sm font-medium mb-1">{{ field.label }}</label>
+
+          <!-- MVP field types. In reality you’d resolve via registry. -->
+          <input
+            v-if="field.type === 'text'"
+            class="w-full rounded border px-3 py-2"
+            v-model="props.form[field.key]"
+            v-bind="field.props"
+          />
+          <input
+            v-else-if="field.type === 'number'"
+            type="number"
+            class="w-full rounded border px-3 py-2"
+            v-model="props.form[field.key]"
+            v-bind="field.props"
+          />
+          <select
+            v-else-if="field.type === 'select'"
+            class="w-full rounded border px-3 py-2"
+            v-model="props.form[field.key]"
+            v-bind="field.props"
+          >
+            <option v-for="opt in (field.props?.options ?? [])" :key="String(opt.value)" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+
+          <p v-if="props.form.errors[field.key]" class="text-sm text-red-600 mt-1">
+            {{ props.form.errors[field.key] }}
+          </p>
+        </div>
+      </div>
+    </section>
+  </div>
+</template>
+```
+
+## RelatedTableBlock component
+
+table + actions + modal edit
+
+resources/js/astra/components/RelatedTableBlock.vue
+
+```ts
+<script setup lang="ts">
+import type { RelatedTableBlockIR } from "../types";
+import { useRelatedTable } from "../composables/useRelatedTable";
+import { useModalForm } from "../composables/useModalForm";
+import AutoForm from "./AutoForm.vue";
+
+const props = defineProps<{ block: RelatedTableBlockIR }>();
+
+const table = useRelatedTable(props.block);
+const modal = useModalForm();
+
+function onRowAction(action: any, row: any) {
+  if (action.kind === "link" && action.href) {
+    window.location.href = action.href.replace(":id", row.id);
+    return;
+  }
+  if (action.kind === "modal" && action.modalUrl) {
+    modal.show(action.modalUrl.replace(":id", row.id));
+    return;
+  }
+}
+
+function saveModal() {
+  modal.submit({
+    onSuccess: () => {
+      modal.hide();
+      table.refresh(); // refresh just this block
+    },
+  });
+}
+</script>
+
+<template>
+  <div class="rounded border p-4 space-y-3">
+    <div class="flex items-center justify-between">
+      <h3 class="font-semibold">{{ block.title }}</h3>
+
+      <input
+        class="rounded border px-3 py-2 text-sm"
+        placeholder="Search..."
+        :value="table.state.search"
+        @input="table.setSearch(($event.target as HTMLInputElement).value)"
+      />
+    </div>
+
+    <div class="overflow-auto rounded border">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="border-b">
+            <th v-for="col in block.schema.columns" :key="col.key" class="text-left p-2">
+              <button
+                v-if="col.sortable"
+                class="underline-offset-2 hover:underline"
+                @click="table.setSort(table.state.sort === col.key ? `-${col.key}` : col.key)"
+              >
+                {{ col.label }}
+              </button>
+              <span v-else>{{ col.label }}</span>
+            </th>
+            <th v-if="block.schema.rowActions?.length" class="p-2"></th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr v-if="table.loading">
+            <td class="p-2" :colspan="block.schema.columns.length + 1">Loading…</td>
+          </tr>
+
+          <tr v-for="row in table.rows" :key="row.id" class="border-b">
+            <td v-for="col in block.schema.columns" :key="col.key" class="p-2">
+              {{ row[col.key] }}
+            </td>
+
+            <td v-if="block.schema.rowActions?.length" class="p-2 text-right">
+              <button
+                v-for="a in block.schema.rowActions"
+                :key="a.label"
+                class="rounded border px-2 py-1 ml-2"
+                type="button"
+                @click="onRowAction(a, row)"
+              >
+                {{ a.label }}
+              </button>
+            </td>
+          </tr>
+
+          <tr v-if="!table.loading && table.rows.length === 0">
+            <td class="p-2" :colspan="block.schema.columns.length + 1">No results.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="flex items-center justify-between text-sm">
+      <span>Page {{ table.meta.page }} of {{ table.meta.pages }} ({{ table.meta.total }})</span>
+      <div class="flex gap-2">
+        <button class="rounded border px-2 py-1" :disabled="table.meta.page <= 1" @click="table.setPage(table.meta.page - 1)">Prev</button>
+        <button class="rounded border px-2 py-1" :disabled="table.meta.page >= table.meta.pages" @click="table.setPage(table.meta.page + 1)">Next</button>
+      </div>
+    </div>
+
+    <!-- Modal (very basic) -->
+    <div v-if="modal.open" class="fixed inset-0 bg-black/40 flex items-center justify-center p-6">
+      <div class="bg-white rounded w-full max-w-2xl p-4 space-y-4">
+        <div class="flex items-center justify-between">
+          <h4 class="font-semibold">{{ modal.payload?.title ?? "Edit" }}</h4>
+          <button class="rounded border px-2 py-1" @click="modal.hide()">Close</button>
+        </div>
+
+        <div v-if="modal.loading">Loading…</div>
+
+        <div v-else-if="modal.payload && modal.form">
+          <AutoForm :schema="modal.payload.form" :form="modal.form" />
+          <div class="flex justify-end gap-2">
+            <button class="rounded border px-3 py-2" @click="modal.hide()">Cancel</button>
+            <button class="rounded bg-black text-white px-3 py-2" :disabled="modal.form.processing" @click="saveModal">
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</template>
+```
+
+## ViewPage template
+
+Blocks composition.
+
+resources/js/Pages/Astra/ViewPage.vue
+
+```ts
+<script setup lang="ts">
+import type { PageIR, BlockIR } from "@/astra/types";
+import RelatedTableBlock from "@/astra/components/RelatedTableBlock.vue";
+
+const props = defineProps<{ page: PageIR; record?: any }>();
+
+function isRelatedTable(b: BlockIR): b is any {
+  return b.type === "relatedTable";
+}
+function isDetails(b: BlockIR): b is any {
+  return b.type === "details";
+}
+</script>
+
+<template>
+  <div class="p-6 space-y-6">
+    <div class="flex items-start justify-between">
+      <div>
+        <h1 class="text-2xl font-bold">{{ page.header?.title ?? page.title ?? "View" }}</h1>
+        <div class="flex gap-2 mt-2">
+          <span v-for="b in (page.header?.badges ?? [])" :key="b.label" class="rounded border px-2 py-1 text-sm">
+            {{ b.label }}
+          </span>
+        </div>
+      </div>
+
+      <div class="flex gap-2">
+        <a
+          v-for="a in (page.header?.actions ?? [])"
+          v-if="a.kind === 'link'"
+          :key="a.label"
+          class="rounded border px-3 py-2"
+          :href="a.href"
+        >{{ a.label }}</a>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-12 gap-4">
+      <div v-for="block in (page.blocks ?? [])" :key="block.id" class="col-span-12">
+        <!-- Details block (simple) -->
+        <div v-if="isDetails(block)" class="rounded border p-4">
+          <h3 v-if="block.title" class="font-semibold mb-3">{{ block.title }}</h3>
+          <div class="grid gap-3" :style="{ gridTemplateColumns: `repeat(${block.columns ?? 2}, minmax(0,1fr))` }">
+            <div v-for="f in block.fields" :key="f.key">
+              <div class="text-xs opacity-70">{{ f.label }}</div>
+              <div class="font-medium">{{ record?.[f.key] ?? "—" }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Related table block -->
+        <RelatedTableBlock v-else-if="isRelatedTable(block)" :block="block" />
+
+        <!-- Custom blocks could be rendered via dynamic component resolver -->
+      </div>
+    </div>
+  </div>
+</template>
+```
+
+## FormPage template
+
+Developer-owned Inertia form.
+
+resources/js/Pages/Astra/FormPage.vue
+
+```ts
+<script setup lang="ts">
+import type { PageIR } from "@/astra/types";
+import { useForm } from "@inertiajs/vue3";
+import AutoForm from "@/astra/components/AutoForm.vue";
+
+const props = defineProps<{ page: PageIR }>();
+
+// The real Inertia form is owned here (escape hatch preserved)
+const form = useForm({ ...(props.page.initial ?? {}) });
+
+function submit() {
+  const s = props.page.submit;
+  if (!s) throw new Error("Missing submit config");
+  form.submit(s.method, s.url, { preserveScroll: true });
+}
+</script>
+
+<template>
+  <div class="p-6 space-y-6">
+    <div class="flex items-center justify-between">
+      <h1 class="text-2xl font-bold">{{ page.title ?? page.header?.title ?? "Edit" }}</h1>
+      <div class="flex gap-2">
+        <button class="rounded border px-3 py-2" type="button" @click="form.reset()">Reset</button>
+        <button class="rounded bg-black text-white px-3 py-2" type="button" :disabled="form.processing" @click="submit">
+          Save
+        </button>
+      </div>
+    </div>
+
+    <AutoForm v-if="page.form" :schema="page.form" :form="form" />
+  </div>
+</template>
+```
+
+
