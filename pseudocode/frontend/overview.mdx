@@ -267,7 +267,7 @@ Uses developer-owned Inertia form.
 
 resources/js/astra/components/AutoForm.vue
 
-```ts
+```vue
 <script setup lang="ts">
 import type { FormSchemaIR } from "../types";
 
@@ -331,7 +331,7 @@ table + actions + modal edit
 
 resources/js/astra/components/RelatedTableBlock.vue
 
-```ts
+```vue
 <script setup lang="ts">
 import type { RelatedTableBlockIR } from "../types";
 import { useRelatedTable } from "../composables/useRelatedTable";
@@ -465,7 +465,7 @@ Blocks composition.
 
 resources/js/Pages/Astra/ViewPage.vue
 
-```ts
+```vue
 <script setup lang="ts">
 import type { PageIR, BlockIR } from "@/astra/types";
 import RelatedTableBlock from "@/astra/components/RelatedTableBlock.vue";
@@ -532,7 +532,7 @@ Developer-owned Inertia form.
 
 resources/js/Pages/Astra/FormPage.vue
 
-```ts
+```vue
 <script setup lang="ts">
 import type { PageIR } from "@/astra/types";
 import { useForm } from "@inertiajs/vue3";
