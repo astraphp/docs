@@ -3,41 +3,42 @@ title: "Welcome to Astra PHP"
 description: "The quickest way to build admin panels in Inertia.js"
 ---
 
-## Ambition
+## The Problem We’re Solving
 
-### The Problem We’re Solving
+Most internal and admin applications are built from the same ingredients: tables, forms, and record detail screens. Yet
+teams repeatedly re-implement these patterns, losing time to boilerplate and micro-inconsistencies — small differences
+in layout, behaviour, validation, or interaction that quietly erode usability and development speed.
 
-Most internal and admin applications are made up of the same two screens, over and over again: tables and forms. Yet
-teams repeatedly rebuild these from scratch, burning time on boilerplate instead of solving real business problems.
+Tools that optimise for speed often do so by tightly coupling UI, state, and server logic. This can lead to sluggish
+interactions on complex pages and makes customisation increasingly difficult. When requirements inevitably grow beyond
+the default patterns, teams are often forced into full rewrites, discarding earlier work.
 
-Frameworks that promise speed often achieve it by tightly coupling UI, state, and server logic. This works well at
-first, but as screens become more complex, performance degrades and customisation becomes difficult. At that point, the
-only escape is usually a full rewrite — throwing away the productivity gains that got you there.
+Our aim is to remove this trade-off: fast to build at the start, flexible and performant as complexity increases.
 
-Our goal is simple: make the common case extremely fast, without creating a dead end when things get complex.
+## Our Approach
 
-### Our Approach
+We use a page-first, schema-driven model built on classic Laravel controllers and Inertia.
+- Developers define pages in PHP using schemas that describe intent: fields, columns, validation, actions.
+- Base controllers handle routing, data loading, validation, and responses.
+- The frontend renders pages using fast, client-side Vue components, with data fetched via lightweight JSON endpoints.
+- Core Inertia primitives (such as useForm) remain first-class and fully accessible.
 
-We take a page-first, schema-driven approach built on familiar Laravel controllers and Inertia.
-- Developers define pages (lists, create, edit, etc.) using PHP schemas that describe intent: fields, columns, validation, actions.
-- Base controllers handle the plumbing: routing, data loading, validation, and responses.
-- The frontend renders these pages using fast, client-side Vue components, with data fetched via lightweight JSON endpoints.
-- Inertia’s own primitives (like useForm) remain first-class — nothing fundamental is hidden or wrapped.
+For more complex screens, pages are composed from blocks:
+- detail blocks for read-only fields
+- table blocks for related data
+- inline form blocks for scoped edits
+- custom blocks for bespoke UI
 
-For speed, a schema can give you a fully working CRUD page with almost no frontend code.
-For flexibility, every layer can be overridden incrementally:
-- swap a field or table cell
-- customise part of a page layout
-- eject a single page into a custom Vue component
-- keep using the same schema and core logic throughout
+Each block is independently powered and can load data lazily, keeping pages responsive even as functionality grows.
 
-### Why This Works
+## Why This Works
 - Performance by default: UI interactions are client-side; the server focuses on data and validation.
-- No abstraction cliff: you can customise one page or one component without abandoning the system.
-- Familiar mental model: classic Laravel controllers, Inertia pages, and Vue components.
-- Work is never wasted: schemas, validation rules, and actions remain useful even as pages become more custom.
+- Progressive customisation: override a field, a block, or a single page without abandoning schemas or shared logic.
+- Composable complexity: record “view” pages are built by combining blocks, not by introducing special-case abstractions.
+- Familiar foundations: standard Laravel controllers, Inertia pages, and Vue components.
+- No wasted effort: schemas, validation rules, actions, and endpoints remain useful even as pages evolve.
 
-The result is a system optimised for speed without regret: rapid development for simple screens, and a clear, safe path
-to full customisation when you need it.
+The result is a system optimised for speed without regret: rapid delivery of simple CRUD screens, and a clear,
+maintainable path to richer, more interactive pages when you need them.
 
 

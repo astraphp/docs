@@ -1,0 +1,117 @@
+
+## File Structure
+
+```
+app/
+  Http/
+    Schemas/
+      Products/
+        ProductIndexSchema.php
+        ProductEditSchema.php
+        ProductViewSchema.php
+        Fragments/
+          View/
+            DetailsPanel.php
+            VariantsTable.php
+            ImagesTable.php
+          Form/
+            ProductBasics.php
+            PricingFields.php
+            InventoryFields.php
+          List/
+            ProductColumns.php
+            ProductFilters.php
+            ProductRowActions.php
+      Shared/
+        Fragments/
+          Fields/
+            AddressFields.php
+            MoneyFields.php
+            TaxFields.php
+          Tables/
+            AuditLogTable.php
+            NotesTable.php
+```
+
+"Astra" belongs in the namespace, but not in the file structure, e.g.
+
+```php
+Astra\Pages\ViewPage
+Astra\Blocks\RelatedTableBlock
+Astra\Http\Controllers\ViewPageController
+````
+
+## Schema concept
+
+```php
+ViewPage::make('products.view')
+  ->component('Admin/ViewPage') // default
+  ->defaultBlock('variants')
+  ->record(fn(Request $r) => Product::query()->findOrFail($r->route('product')))
+  ->header(fn($p) => Header::make()
+      ->title($p->name)
+      ->badges([ Badge::make('status')->from($p->status) ])
+      ->actions([
+          Action::link('Edit')->to(route('admin.products.edit', $p)),
+          Action::danger('Delete')->handler('products.delete'),
+      ])
+  )
+  ->blocks([
+      DetailsBlock::make('Details')
+          ->fields([
+              Display::text('sku'),
+              Display::money('price')->currency('GBP'),
+              Display::text('status'),
+          ])
+          ->columns(2),
+
+      RelatedTableBlock::make('Variants')
+          ->stateKey('variants')        // used for querystring namespacing, etc
+          ->list(VariantsListPage::schema())           // reuse your ListPage schema
+          ->scope(fn($q, $p) => $q->where('product_id', $p->id))
+          ->endpoint(route('admin.products.variants.data', $p)),
+
+      RelatedTableBlock::make('Images')
+          ->stateKey('images')
+          ->list(ProductImagesListPage::schema())
+          ->endpoint(route('admin.products.images.data', $p)),
+  ]);
+```
+
+### Schema class
+
+```php
+namespace Astra\Http\Schemas\Products;
+
+use Astra\Pages\ViewPage;
+
+final class ProductViewSchema
+{
+    public static function build(Request $request): ViewPage
+    {
+        return ViewPage::make('products.view')
+            ->component('Astra/ViewPage')
+            ->record(fn () =>
+                Product::query()->findOrFail($request->route('product'))
+            )
+            ->blocks([
+                // …
+            ]);
+    }
+}
+```
+
+### Controller
+
+```php
+use App\Http\Schemas\Products\ProductViewSchema;
+
+final class ProductViewController extends ViewPageController
+{
+    protected function schema(Request $request): ViewPage
+    {
+        return ProductViewSchema::build($request);
+    }
+}
+```
+

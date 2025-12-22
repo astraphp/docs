@@ -1,0 +1,222 @@
+## Schema mutators
+
+To support Lunar extension of the admin panel, mutators could be registered by developers.
+
+### Core concepts
+
+Page schema has stable IDs
+
+```php
+// Core schema defines stable IDs so extensions can target them.
+$page = ViewPage::make('catalog.products.view')
+  ->blocks([
+    DetailsBlock::make('details'),
+    RelatedTableBlock::make('variants')->section('relations'),
+  ]);
+```
+
+Mutators target a page ID (or pattern)
+
+```php
+interface SchemaMutator
+{
+    public function appliesTo(string $pageId): bool;
+
+    /** Lower runs earlier; allow ordering */
+    public function priority(): int;
+
+    public function mutate(PageSchema $schema, SchemaContext $ctx): void;
+}
+
+final class SchemaContext
+{
+    public function __construct(
+        public Request $request,
+        public User $user,
+        public array $routeParams,
+        public array $abilities,
+    ) {}
+}
+```
+
+### Registry + pipeline
+
+```php
+final class SchemaMutatorRegistry
+{
+    /** @var list<SchemaMutator> */
+    private array $mutators = [];
+
+    public function register(SchemaMutator $m): void
+    {
+        $this->mutators[] = $m;
+    }
+
+    /** @return list<SchemaMutator> */
+    public function forPage(string $pageId): array
+    {
+        $list = array_filter($this->mutators, fn($m) => $m->appliesTo($pageId));
+        usort($list, fn($a, $b) => $a->priority() <=> $b->priority());
+        return $list;
+    }
+}
+
+final class SchemaPipeline
+{
+    public function __construct(private SchemaMutatorRegistry $registry) {}
+
+    public function build(callable $baseFactory, string $pageId, SchemaContext $ctx): PageSchema
+    {
+        $schema = $baseFactory($ctx); // returns PageSchema (ViewPage/ListPage/FormPage)
+        foreach ($this->registry->forPage($pageId) as $mutator) {
+            $mutator->mutate($schema, $ctx);
+        }
+        return $schema;
+    }
+}
+```
+
+### Mutation operations (the API extensions actually use)
+You want high-level operations, not “poke arrays”.
+
+```php
+abstract class PageSchema
+{
+    public string $id;
+
+    // ---- blocks
+    public function addBlockAfter(string $existingBlockId, Block $block): void {}
+    public function addBlockBefore(string $existingBlockId, Block $block): void {}
+    public function addBlockToSection(string $sectionId, Block $block, ?int $position = null): void {}
+    public function removeBlock(string $blockId): void {}
+
+    // ---- forms
+    public function addFields(string $sectionId, array $fields, ?string $afterFieldKey = null): void {}
+    public function addSection(string $sectionId, string $title, ?string $afterSectionId = null): void {}
+
+    // ---- tables
+    public function addColumn(string $tableBlockId, Column $column, ?string $afterColumnKey = null): void {}
+    public function addFilter(string $tableBlockId, Filter $filter): void {}
+    public function addRowAction(string $tableBlockId, Action $action): void {}
+}
+```
+
+### Example mutators
+Add a “Stock Movements” related table block
+
+```php
+final class StockMovementsBlockMutator implements SchemaMutator
+{
+    public function appliesTo(string $pageId): bool
+    {
+        return $pageId === 'catalog.products.view';
+    }
+
+    public function priority(): int { return 50; }
+
+    public function mutate(PageSchema $schema, SchemaContext $ctx): void
+    {
+        if (!in_array('inventory.view', $ctx->abilities)) {
+            return;
+        }
+
+        $productId = $ctx->routeParams['product']; // or record id
+
+        $schema->addBlockAfter('variants', RelatedTableBlock::make('stock_movements')
+            ->title('Stock movements')
+            ->stateKey('stock')
+            ->endpoint(route('inventory.products.stock.data', ['product' => $productId]))
+            ->list(StockMovementsListSchema::make()) // reuse list schema
+        );
+    }
+}
+```
+
+Add fields into an existing form section
+
+```php
+final class TaxFieldsMutator implements SchemaMutator
+{
+    public function appliesTo(string $pageId): bool
+    {
+        return $pageId === 'catalog.products.edit';
+    }
+
+    public function priority(): int { return 20; }
+
+    public function mutate(PageSchema $schema, SchemaContext $ctx): void
+    {
+        $schema->addFields('pricing', [
+            Field::select('tax_class_id')->label('Tax class')->optionsEndpoint(route('tax.classes.search')),
+            Field::toggle('prices_include_tax')->label('Prices include tax'),
+        ], afterFieldKey: 'price');
+    }
+}
+```
+
+Add a column + row action to the variants table
+
+```php
+final class VariantsEnhancementsMutator implements SchemaMutator
+{
+    public function appliesTo(string $pageId): bool
+    {
+        return $pageId === 'catalog.products.view';
+    }
+
+    public function priority(): int { return 60; }
+
+    public function mutate(PageSchema $schema, SchemaContext $ctx): void
+    {
+        $schema->addColumn('variants', Column::badge('availability')->label('Availability'), afterColumnKey: 'sku');
+
+        $schema->addRowAction('variants', Action::button('Edit')
+            ->icon('pencil')
+            ->opensModal('variants.edit') // framework knows this means “modal form payload + submit”
+        );
+    }
+}
+```
+
+### How extensions register mutators
+
+```php
+use App\Lunar\Http\Mutators\VariantsEnhancementsMutator;
+use Lunar\Inventory\Http\Mutators\StockMovementsBlockMutator;
+
+final class InventoryServiceProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        app(SchemaMutatorRegistry::class)->register(new StockMovementsBlockMutator);
+        app(SchemaMutatorRegistry::class)->register(new VariantsEnhancementsMutator);
+    }
+}
+```
+
+### How a controller uses the pipeline
+
+```php
+final class ProductViewController extends Controller
+{
+    public function __invoke(Request $request, SchemaPipeline $pipeline)
+    {
+        $ctx = new SchemaContext(
+            request: $request,
+            user: $request->user(),
+            routeParams: $request->route()->parameters(),
+            abilities: $this->abilitiesFor($request->user()),
+        );
+
+        $schema = $pipeline->build(
+            baseFactory: fn($ctx) => ProductViewSchema::build($ctx->request),
+            pageId: 'catalog.products.view',
+            ctx: $ctx
+        );
+
+        return Inertia::render($schema->component(), [
+            'page' => $schema->toArray(),
+        ]);
+    }
+}
+```

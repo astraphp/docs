@@ -14,8 +14,23 @@
     "default": "dark"
   },
   "navigation": {
-    "pages": [
-      "index"
+    "groups": [
+      {
+        "group": "Overview",
+        "icon": "maximize",
+        "pages": [
+          "index",
+          "extending"
+        ]
+      },
+      {
+        "group": "Pseudocode",
+        "icon": "play",
+        "pages": [
+          "pseudocode/core",
+          "pseudocode/extending"
+        ]
+      }
     ]
   }
 }
