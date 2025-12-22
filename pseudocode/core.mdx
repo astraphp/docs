@@ -158,6 +158,15 @@ src/
       Warning.php
       Danger.php
 
+  Overlays/
+    Overlay.php
+    Modal.php
+    SlideOut.php
+    Concerns/
+      HasTitle.php
+      HasWidth.php
+      IsDismissible.php
+
   Pages/
     Page.php
     ViewPage.php
@@ -306,5 +315,27 @@ final class ProductViewController extends ViewPageController
         return ProductViewSchema::build($request);
     }
 }
+```
+
+## Actions
+
+```php
+Action::make('archive')
+  ->label('Archive')
+  ->danger()
+  ->presentedAsModal(fn ($modal) => $modal
+      ->title('Archive product?')
+      ->description('This hides the product from the catalogue.')
+      ->confirmText('Archive')
+  )
+  ->handle('products.archive');
+
+Action::make('edit')
+  ->label('Edit')
+  ->presentedAsSlideOut(fn ($drawer) => $drawer
+      ->title('Edit product')
+      ->width('xl')
+  )
+  ->form(ProductForm::schema()); // action collects inputs
 ```
 
